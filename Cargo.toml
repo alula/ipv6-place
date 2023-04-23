@@ -1,0 +1,2 @@
+[workspace]
+members = ["place-backend", "place-frontend", "place-client"]

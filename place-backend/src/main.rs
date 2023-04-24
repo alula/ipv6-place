@@ -20,11 +20,14 @@ async fn main() -> PResult<()> {
 
     let place = place::Place::new(&settings.canvas)?;
     let websocket = websocket::WebSocketServer::new(&settings).await?;
+    let backend = backend::backend_factory(&settings, place.image.clone())?;
 
     let mut join_set = JoinSet::new();
 
-    join_set.spawn(async move { websocket.start_server().await? });
+    let image_handle = place.image.clone();
+    join_set.spawn(async move { websocket.start_server(image_handle).await? });
     join_set.spawn(async move { place.start_diffing_task().await? });
+    join_set.spawn(async move { backend.start().await? });
 
     while let Some(result) = join_set.join_next().await {
         result??;

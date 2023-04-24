@@ -1,9 +1,12 @@
 use std::net::Ipv6Addr;
 
-use config::{Config, ConfigError};
+use config::Config;
 use serde::Deserialize;
 
-use crate::{utils::{Color, RangedU16}, PResult};
+use crate::{
+    utils::{Color, RangedU16},
+    PResult,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
@@ -17,9 +20,11 @@ pub struct CanvasSettings {
     /// Size of the canvas in pixels. Acceptable values are 16-4096, default is 512.
     #[serde(default = "CanvasSettings::default_size")]
     pub size: RangedU16<16, 4096>,
+
     /// The background color of the canvas in form of "#rrggbb" string, default is "#ffffff".
     #[serde(default = "CanvasSettings::default_background_color")]
     pub background_color: Color,
+
     /// The filename to save the canvas to, default is "place.png".
     #[serde(default = "CanvasSettings::default_filename")]
     pub filename: String,
@@ -53,13 +58,21 @@ pub struct BackendSettings {
     /// The backend to use. Available options are: "smoltcp".
     pub backend_type: BackendType,
 
+    /// Settings for the smoltcp backend.
     pub smoltcp: SmoltcpSettings,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SmoltcpSettings {
-    /// Name of TAP interface to use.
+    /// Name of TAP interface to use. Default is "tap0".
+    #[serde(default = "SmoltcpSettings::default_tap_iface")]
     pub tap_iface: String,
+}
+
+impl SmoltcpSettings {
+    fn default_tap_iface() -> String {
+        "tap0".to_string()
+    }
 }
 
 #[derive(Debug, Deserialize)]

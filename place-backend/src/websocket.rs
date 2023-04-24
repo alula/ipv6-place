@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use crate::{settings::Settings, PResult};
-use futures::stream::StreamExt;
+use crate::{place::SharedImageHandle, settings::Settings, PResult};
+use futures::{stream::StreamExt, SinkExt};
 use hyper::{Body, Request, Response};
-use hyper_tungstenite::HyperWebsocket;
+use hyper_tungstenite::{tungstenite::Message, HyperWebsocket};
+use image::ImageEncoder;
+use image::{codecs::png, ColorType};
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpListener, task::JoinHandle};
 
@@ -52,6 +54,7 @@ impl WebSocketServer {
     async fn handle_request(
         mut request: Request<Body>,
         serialized_config: &'static str,
+        image_handle: SharedImageHandle,
     ) -> PResult<Response<Body>> {
         if hyper_tungstenite::is_upgrade_request(&request) {
             if request.uri().path() == "/" {
@@ -59,7 +62,8 @@ impl WebSocketServer {
 
                 // Spawn a task to handle the websocket connection.
                 tokio::spawn(async move {
-                    if let Err(e) = WebSocketServer::serve_websocket(websocket).await {
+                    if let Err(e) = WebSocketServer::serve_websocket(websocket, image_handle).await
+                    {
                         log::error!("Error in websocket connection: {}", e);
                     }
                 });
@@ -81,9 +85,26 @@ impl WebSocketServer {
         return Ok(response);
     }
 
-    async fn serve_websocket(websocket: HyperWebsocket) -> PResult<()> {
-        let mut websocket = websocket.await?;
+    async fn serve_websocket(
+        websocket: HyperWebsocket,
+        image_handle: SharedImageHandle,
+    ) -> PResult<()> {
+        let websocket = websocket.await?;
         let (mut sender, mut receiver) = websocket.split();
+
+        {
+            let image = image_handle.get_image().await;
+            let mut writer = Vec::new();
+            let encoder = png::PngEncoder::new(&mut writer);
+            encoder.write_image(
+                image.as_raw(),
+                image.width(),
+                image.height(),
+                ColorType::Rgba8,
+            )?;
+            sender.send(Message::Binary(writer)).await?;
+        }
+
         while let Some(message) = receiver.next().await {
             match message? {
                 _ => {}
@@ -93,19 +114,27 @@ impl WebSocketServer {
         Ok(())
     }
 
-    async fn run(&mut self) -> PResult<()> {
-        let serialized_config: &'static str = Box::leak(serde_json::to_string(&self.config_info)?.into_boxed_str());
+    async fn run(&mut self, image_handle: SharedImageHandle) -> PResult<()> {
+        // The config doesn't change during lifetime of the server, so we can serialize it and turn it
+        // into &'static str to avoid making redundant copies of the string on every request.
+        let serialized_config: &'static str =
+            Box::leak(serde_json::to_string(&self.config_info)?.into_boxed_str());
 
         loop {
             let (stream, addr) = self.socket.accept().await?;
             log::info!("New connection from {}", addr);
 
+            let image_handle = image_handle.clone();
             let connection = self
                 .http
                 .serve_connection(
                     stream,
                     hyper::service::service_fn(move |request| {
-                        WebSocketServer::handle_request(request, serialized_config)
+                        WebSocketServer::handle_request(
+                            request,
+                            serialized_config,
+                            image_handle.clone(),
+                        )
                     }),
                 )
                 .with_upgrades();
@@ -118,7 +147,7 @@ impl WebSocketServer {
         }
     }
 
-    pub fn start_server(mut self) -> JoinHandle<PResult<()>> {
-        tokio::spawn(async move { self.run().await })
+    pub fn start_server(mut self, image_handle: SharedImageHandle) -> JoinHandle<PResult<()>> {
+        tokio::spawn(async move { self.run(image_handle).await })
     }
 }

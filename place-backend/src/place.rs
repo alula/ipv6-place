@@ -63,6 +63,10 @@ pub struct Place {
 
 impl Place {
     pub fn new(settings: &CanvasSettings) -> PResult<Place> {
+        if settings.filename.is_empty() {
+            return Err("Filename must be set".into());
+        }
+
         let path = PathBuf::from(&settings.filename);
         let size = settings.size.get() as u32;
 
@@ -97,11 +101,35 @@ impl Place {
         })
     }
 
+    pub fn new_memory(settings: &CanvasSettings) -> PResult<Place> {
+        let size = settings.size.get() as u32;
+
+        let data = {
+            let mut data = RgbaImage::new(size, size);
+            for pixel in data.pixels_mut() {
+                *pixel = settings.background_color.into_rgba();
+            }
+            data
+        };
+
+        let (png_sender, _) = broadcast::channel(8);
+
+        Ok(Place {
+            image: SharedImageHandle::new(data),
+            path: PathBuf::from(""),
+            png_sender,
+        })
+    }
+
     pub fn put(&mut self, x: u32, y: u32, colour: u32) {
         self.image.put_blocking(x, y, colour);
     }
 
     pub fn save(&self) -> PResult<()> {
+        if self.path == PathBuf::from("") {
+            return Err("No path to save to".into());
+        }
+
         let image = self.image.get_image_blocking();
         image.save(&self.path)?;
         Ok(())
@@ -133,10 +161,10 @@ mod test {
 
     #[test]
     fn nyauwunyanyanyanya() {
-        let place = Place::new(&CanvasSettings {
+        let place = Place::new_memory(&CanvasSettings {
             size: RangedU16::new(512).unwrap(),
             background_color: Color::rgb(255, 255, 255),
-            filename: "test.png".to_owned(),
+            filename: String::new(),
         })
         .unwrap();
 
@@ -166,8 +194,6 @@ mod test {
                 // }
             }
         }
-
-        place.save().unwrap();
     }
 
     #[tokio::test]

@@ -10,6 +10,9 @@ macro_rules! make_ranged_int {
     ($name:ident, $type:ident) => {
         #[repr(transparent)]
         #[derive(Clone, Copy, Hash, Eq, Ord)]
+        /// Range checked integer type.
+        /// Provides a custom serde::Deserialize implementation that performs range checking and returns 
+        /// an error if the parsed value is out of range.
         pub struct $name<const MIN: $type, const MAX: $type>($type);
 
         impl<const MIN: $type, const MAX: $type> $name<MIN, MAX> {
@@ -87,6 +90,7 @@ macro_rules! make_ranged_int {
 
 make_ranged_int!(RangedU8, u8);
 make_ranged_int!(RangedU16, u16);
+make_ranged_int!(RangedU32, u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Color {
@@ -97,14 +101,17 @@ pub struct Color {
 }
 
 impl Color {
+    #[inline]
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
 
+    #[inline]
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
 
+    #[inline]
     pub const fn rgba32(rgba: u32) -> Self {
         Self {
             r: ((rgba >> 24) & 0xFF) as u8,
@@ -145,6 +152,7 @@ impl Color {
         Some(Self { r, g, b, a })
     }
 
+    #[inline]
     pub const fn into_rgba(&self) -> Rgba<u8> {
         Rgba([self.r, self.g, self.b, self.a])
     }

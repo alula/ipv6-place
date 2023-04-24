@@ -3,12 +3,28 @@ edition = "2021"
 name = "place-backend"
 version = "0.0.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# Enable optimizations on external crates in debug mode for better performance, 
+# notably for "image" crate.
+[profile.dev.package."*"]
+opt-level = 3
+overflow-checks = false
+
+[features]
+default = ["all-backends"]
+
+all-backends = ["backend-smoltcp", "backend-pcap"]
+backend-pcap = []
+backend-smoltcp = []
 
 [dependencies]
 config = {version = "0.13.1", default-features = false, features = ["toml"]}
 futures = "0.3.28"
+hyper = {version = "0.14.18", features = ["http1", "server", "tcp"]}
+hyper-tungstenite = "0.9"
 image = "0.24.6"
-surge-ping = "0.8.0"
+log = "0.4"
+pretty_env_logger = "0.4.0"
 serde = {version = "1.0.160", features = ["derive"]}
+serde_json = "1.0.96"
+surge-ping = "0.8.0"
 tokio = {version = "1.27.0", features = ["full"]}

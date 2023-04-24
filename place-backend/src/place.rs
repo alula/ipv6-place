@@ -1,10 +1,11 @@
 use image::{ImageFormat, Rgba, RgbaImage};
-use tokio::sync::{RwLock, RwLockReadGuard};
-use std::{
-    fs::File,
-    io::BufReader,
-    path::{Path, PathBuf}, sync::Arc,
+use std::{fs::File, io::BufReader, path::PathBuf, sync::Arc};
+use tokio::{
+    sync::{broadcast, RwLock, RwLockReadGuard},
+    task::JoinHandle,
 };
+
+use crate::{settings::CanvasSettings, PResult};
 
 pub struct SharedImageHandle {
     data: Arc<RwLock<RgbaImage>>,
@@ -57,23 +58,42 @@ impl Clone for SharedImageHandle {
 pub struct Place {
     pub image: SharedImageHandle,
     pub path: PathBuf,
+    pub png_sender: broadcast::Sender<Arc<[u8]>>,
 }
 
 impl Place {
-    pub fn new(path: impl AsRef<Path>) -> Result<Place, Box<dyn std::error::Error>> {
-        let data = if path.as_ref().exists() {
-            let f = File::open(path.as_ref())?;
+    pub fn new(settings: &CanvasSettings) -> PResult<Place> {
+        let path = PathBuf::from(&settings.filename);
+        let size = settings.size.get() as u32;
+
+        let data = if path.exists() {
+            let f = File::open(&path)?;
             let image = BufReader::new(f);
-            image::load(image, ImageFormat::Png)?.into_rgba8()
+            let image = image::load(image, ImageFormat::Png)?.into_rgba8();
+            if image.dimensions() != (size, size) {
+                return Err(format!(
+                    "Image dimensions do not match configured canvas size: {:?} != {:?}",
+                    image.dimensions(),
+                    (size, size)
+                )
+                .into());
+            }
+            image
         } else {
-            let data = RgbaImage::new(512, 512);
-            data.save(path.as_ref())?;
+            let mut data = RgbaImage::new(size, size);
+            for pixel in data.pixels_mut() {
+                *pixel = settings.background_color.into_rgba();
+            }
+            data.save(&path)?;
             data
         };
 
+        let (png_sender, _) = broadcast::channel(8);
+
         Ok(Place {
             image: SharedImageHandle::new(data),
-            path: path.as_ref().to_owned(),
+            path,
+            png_sender,
         })
     }
 
@@ -81,26 +101,44 @@ impl Place {
         self.image.put_blocking(x, y, colour);
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(&self) -> PResult<()> {
         let image = self.image.get_image_blocking();
         image.save(&self.path)?;
         Ok(())
+    }
+
+    async fn diffing_task(
+        image: SharedImageHandle,
+        png_sender: broadcast::Sender<Arc<[u8]>>,
+    ) -> PResult<()> {
+        Ok(())
+    }
+
+    pub fn start_diffing_task(&self) -> JoinHandle<PResult<()>> {
+        let image = self.image.clone();
+        let png_sender = self.png_sender.clone();
+        tokio::spawn(async move { Self::diffing_task(image, png_sender).await })
     }
 }
 
 #[cfg(test)]
 mod test {
     use futures::future;
-    use std::{
-        net::{IpAddr, Ipv6Addr},
-    };
+    use std::net::{IpAddr, Ipv6Addr};
     use surge_ping::{Client, Config, ICMP};
+
+    use crate::utils::{Color, RangedU16};
 
     use super::*;
 
     #[test]
     fn nyauwunyanyanyanya() {
-        let place = Place::new("test.png").unwrap();
+        let place = Place::new(&CanvasSettings {
+            size: RangedU16::new(512).unwrap(),
+            background_color: Color::rgb(255, 255, 255),
+            filename: "test.png".to_owned(),
+        })
+        .unwrap();
 
         let th = 10;
         let (x, y) = place.image.get_dimensions_blocking();
@@ -147,14 +185,16 @@ mod test {
                         .pinger(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0)), 0.into())
                         .await;
                     let handle = tokio::spawn(async move {
-                        let parsed =
-                            Ipv6Addr::new(
-                                0x2602,0xfa9b, 0x42,
-                                0x1000 | x, y, 
-                                ((x as f64 / 512.0) * 255.0) as u16,
-                                ((y as f64 / 512.0) * 255.0) as u16,
-                                if y % 2 == 0 { 0x00 } else { 0xff }
-                            );
+                        let parsed = Ipv6Addr::new(
+                            0x2602,
+                            0xfa9b,
+                            0x42,
+                            0x1000 | x,
+                            y,
+                            ((x as f64 / 512.0) * 255.0) as u16,
+                            ((y as f64 / 512.0) * 255.0) as u16,
+                            if y % 2 == 0 { 0x00 } else { 0xff },
+                        );
                         pinger.host = parsed.into();
                         pinger.ping(0.into(), &[1; 8]).await.unwrap_err();
                     });

@@ -64,14 +64,14 @@ pub struct BackendSettings {
 
 #[derive(Debug, Deserialize)]
 pub struct SmoltcpSettings {
-    /// Name of TAP interface to use. Default is "tap0".
-    #[serde(default = "SmoltcpSettings::default_tap_iface")]
-    pub tap_iface: String,
+    /// Name of TAP interface to use. Default is "tun0".
+    #[serde(default = "SmoltcpSettings::default_tun_iface")]
+    pub tun_iface: String,
 }
 
 impl SmoltcpSettings {
-    fn default_tap_iface() -> String {
-        "tap0".to_string()
+    fn default_tun_iface() -> String {
+        "tun0".to_string()
     }
 }
 

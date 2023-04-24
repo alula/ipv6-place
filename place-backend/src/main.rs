@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::task::JoinSet;
 
 mod backend;
@@ -7,6 +9,12 @@ mod utils;
 mod websocket;
 
 pub type PResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
+
+#[derive(Clone)]
+pub struct SharedContext {
+    pub image: place::SharedImageHandle,
+    pub packet_counter: Arc<backend::PacketCounter>,
+}
 
 #[tokio::main]
 async fn main() -> PResult<()> {

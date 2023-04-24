@@ -1,5 +1,5 @@
 use super::NetworkBackend;
-use crate::{place::SharedImageHandle, settings::Settings, PResult};
+use crate::{place::SharedImageHandle, settings::Settings, PResult, backend::PixelRequest};
 use smoltcp::{
     iface::{Config, Interface, SocketSet, Route},
     phy::{self, ChecksumCapabilities, Medium, TunTapInterface},
@@ -31,12 +31,12 @@ fn or_addr(addr: Ipv6Address, mask: Ipv6Address) -> Ipv6Address {
 
 impl SmoltcpNetworkBackend {
     pub fn new(settings: &Settings, image: SharedImageHandle) -> PResult<Box<dyn NetworkBackend>> {
-        let mut config = Config::new();
+        let mut config = Config::new(smoltcp::wire::HardwareAddress::Ip);
         config.random_seed = rand::random();
-        config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
+        // config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
 
         let mut device =
-            TunTapInterface::new(&settings.backend.smoltcp.tap_iface, Medium::Ethernet)?;
+            TunTapInterface::new(&settings.backend.smoltcp.tun_iface, Medium::Ip)?;
 
         let prefix: Ipv6Address = settings.backend.prefix48.into();
 
@@ -124,12 +124,10 @@ impl NetworkBackend for SmoltcpNetworkBackend {
                     log::debug!("Received ICMP packet {:?}", icmp_parsed);
 
                     match icmp_parsed {
-                        Icmpv6Repr::EchoRequest { ident, seq_no, data } => {
-                            
-                        }
-                        Icmpv6Repr::Ndisc(NdiscRepr::RouterSolicit{lladdr}) => {
-                            
-                            
+                        Icmpv6Repr::EchoRequest { .. } => {
+                            let req = PixelRequest::from_ipv6(&ipv6_parsed.src_addr.into());
+                            let (x, y) = req.pos;
+                            self.image.put_blocking(x as _, y as _, req.color.into_rgba32());
                         }
                         _ => {}
                     }

@@ -25,6 +25,6 @@ pretty_env_logger = "0.4.0"
 rand = "0.8.5"
 serde = {version = "1.0.160", features = ["derive"]}
 serde_json = "1.0.96"
-smoltcp = {version = "0.9.1", optional = true}
+smoltcp = {git = "https://github.com/smoltcp-rs/smoltcp.git", rev = "8b0c521e203182ac7c8365700be394d8bdf6cc4b", optional = true, features = ["medium-ip"]}
 surge-ping = "0.8.0"
 tokio = {version = "1.27.0", features = ["full"]}

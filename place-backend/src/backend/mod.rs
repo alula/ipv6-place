@@ -1,6 +1,12 @@
-use std::net::Ipv6Addr;
+use std::{
+    net::Ipv6Addr,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
+};
 
-use tokio::task::JoinHandle;
+use tokio::{sync::broadcast, task::JoinHandle};
 
 use crate::{
     place::SharedImageHandle,
@@ -44,6 +50,33 @@ impl PixelRequest {
             pos: (x, y),
             color: Color::rgb(r, g, b),
             size,
+        }
+    }
+}
+
+pub struct PacketCounter {
+    pps: AtomicU32,
+    counter: AtomicU32,
+}
+
+impl PacketCounter {
+    #[inline]
+    pub fn increment(&self) {
+        self.counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn reset_pps(&self) -> u32 {
+        let pps = self.counter.swap(0, Ordering::Relaxed);
+        self.pps.store(pps, Ordering::Relaxed);
+        pps
+    }
+
+    pub async fn pps_counter_task(self: Arc<Self>, pps_sender: broadcast::Sender<u32>) -> PResult<()> {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            let pps = self.reset_pps();
+            pps_sender.send(pps)?;
         }
     }
 }

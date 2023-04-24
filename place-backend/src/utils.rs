@@ -156,6 +156,11 @@ impl Color {
     pub const fn into_rgba(&self) -> Rgba<u8> {
         Rgba([self.r, self.g, self.b, self.a])
     }
+
+    #[inline]
+    pub const fn into_rgba32(&self) -> u32 {
+        ((self.r as u32) << 24) | ((self.g as u32) << 16) | ((self.b as u32) << 8) | (self.a as u32)
+    }
 }
 
 impl serde::Serialize for Color {

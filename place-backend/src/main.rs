@@ -18,8 +18,8 @@ async fn main() -> PResult<()> {
     let settings = settings::Settings::new()?;
     log::info!("settings = {:?}", settings);
 
-    let mut place = place::Place::new(&settings.canvas)?;
-    let mut websocket = websocket::WebSocketServer::new(&settings).await?;
+    let place = place::Place::new(&settings.canvas)?;
+    let websocket = websocket::WebSocketServer::new(&settings).await?;
 
     let mut join_set = JoinSet::new();
 

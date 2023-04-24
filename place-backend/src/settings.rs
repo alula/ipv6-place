@@ -3,7 +3,7 @@ use std::net::Ipv6Addr;
 use config::{Config, ConfigError};
 use serde::Deserialize;
 
-use crate::utils::{Color, RangedU16};
+use crate::{utils::{Color, RangedU16}, PResult};
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
@@ -76,12 +76,23 @@ impl WebSocketSettings {
 }
 
 impl Settings {
-    pub fn new() -> Result<Self, ConfigError> {
+    pub fn new() -> PResult<Self> {
         let settings = Config::builder()
             .add_source(config::File::with_name("config.toml"))
             .add_source(config::Environment::with_prefix("PLACE_"))
             .build()?;
 
-        settings.try_deserialize()
+        let settings = settings.try_deserialize::<Settings>()?;
+        settings.sanity_check()?;
+        Ok(settings)
+    }
+
+    fn sanity_check(&self) -> PResult<()> {
+        let addr = self.backend.prefix48.segments();
+        if addr[3..].iter().any(|&v| v != 0) {
+            return Err("The specified /48 prefix must have it's lower bits set to 0.".into());
+        }
+
+        Ok(())
     }
 }

@@ -2,7 +2,6 @@ use std::cmp::{Eq, Ord, PartialOrd};
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::iter;
 use std::ops::RangeInclusive;
 
 use image::Rgba;
@@ -14,7 +13,7 @@ macro_rules! make_ranged_int {
         pub struct $name<const MIN: $type, const MAX: $type>($type);
 
         impl<const MIN: $type, const MAX: $type> $name<MIN, MAX> {
-            const VAL_ASSERTION: () = assert!(MIN <= MAX);
+            const _VAL_ASSERTION: () = assert!(MIN <= MAX);
 
             pub const fn new(value: $type) -> Option<Self> {
                 if value >= MIN && value <= MAX {
@@ -142,8 +141,6 @@ impl Color {
         } else {
             255
         };
-
-        println!("{} {} {} {}", r, g, b, a);
 
         Some(Self { r, g, b, a })
     }

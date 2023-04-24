@@ -1,12 +1,14 @@
 [package]
+edition = "2021"
 name = "place-backend"
 version = "0.0.0"
-edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+config = {version = "0.13.1", default-features = false, features = ["toml"]}
 futures = "0.3.28"
 image = "0.24.6"
 surge-ping = "0.8.0"
-tokio = { version = "1.27.0", features = ["full"] }
+serde = {version = "1.0.160", features = ["derive"]}
+tokio = {version = "1.27.0", features = ["full"]}

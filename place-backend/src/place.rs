@@ -1,41 +1,89 @@
 use image::{ImageFormat, Rgba, RgbaImage};
+use tokio::sync::{RwLock, RwLockReadGuard};
 use std::{
     fs::File,
     io::BufReader,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf}, sync::Arc,
 };
 
+pub struct SharedImageHandle {
+    data: Arc<RwLock<RgbaImage>>,
+}
+
+impl SharedImageHandle {
+    pub fn new(data: RgbaImage) -> SharedImageHandle {
+        SharedImageHandle {
+            data: Arc::new(RwLock::new(data)),
+        }
+    }
+
+    pub async fn put(&self, x: u32, y: u32, colour: u32) {
+        let mut image = self.data.write().await;
+        image[(x, y)] = Rgba(colour.to_le_bytes());
+    }
+
+    pub fn put_blocking(&self, x: u32, y: u32, colour: u32) {
+        let mut image = self.data.blocking_write();
+        image[(x, y)] = Rgba(colour.to_le_bytes());
+    }
+
+    pub async fn get_dimensions(&self) -> (u32, u32) {
+        let image = self.data.read().await;
+        image.dimensions()
+    }
+
+    pub fn get_dimensions_blocking(&self) -> (u32, u32) {
+        let image = self.data.blocking_read();
+        image.dimensions()
+    }
+
+    pub async fn get_image(&self) -> RwLockReadGuard<'_, RgbaImage> {
+        self.data.read().await
+    }
+
+    pub fn get_image_blocking(&self) -> RwLockReadGuard<'_, RgbaImage> {
+        self.data.blocking_read()
+    }
+}
+
+impl Clone for SharedImageHandle {
+    fn clone(&self) -> Self {
+        SharedImageHandle {
+            data: Arc::clone(&self.data),
+        }
+    }
+}
+
 pub struct Place {
-    pub data: RgbaImage,
+    pub image: SharedImageHandle,
     pub path: PathBuf,
 }
 
 impl Place {
     pub fn new(path: impl AsRef<Path>) -> Result<Place, Box<dyn std::error::Error>> {
-        if path.as_ref().exists() {
+        let data = if path.as_ref().exists() {
             let f = File::open(path.as_ref())?;
             let image = BufReader::new(f);
-            let data = image::load(image, ImageFormat::Png)?.into_rgba8();
-            Ok(Place {
-                data,
-                path: path.as_ref().to_owned(),
-            })
+            image::load(image, ImageFormat::Png)?.into_rgba8()
         } else {
             let data = RgbaImage::new(512, 512);
             data.save(path.as_ref())?;
-            Ok(Place {
-                data,
-                path: path.as_ref().to_owned(),
-            })
-        }
+            data
+        };
+
+        Ok(Place {
+            image: SharedImageHandle::new(data),
+            path: path.as_ref().to_owned(),
+        })
     }
 
     pub fn put(&mut self, x: u32, y: u32, colour: u32) {
-        self.data[(x, y)] = Rgba(colour.to_le_bytes());
+        self.image.put_blocking(x, y, colour);
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        self.data.save(&self.path)?;
+        let image = self.image.get_image_blocking();
+        image.save(&self.path)?;
         Ok(())
     }
 }
@@ -52,13 +100,13 @@ mod test {
 
     #[test]
     fn nyauwunyanyanyanya() {
-        let mut place = Place::new("test.png").unwrap();
+        let place = Place::new("test.png").unwrap();
 
         let th = 10;
-        let (x, y) = place.data.dimensions();
+        let (x, y) = place.image.get_dimensions_blocking();
         for x in 0..x {
             for y in 0..y {
-                place.put(
+                place.image.put_blocking(
                     x,
                     y,
                     u32::from_le_bytes([

@@ -57,7 +57,7 @@ impl WebSocketServer {
         image_handle: SharedImageHandle,
     ) -> PResult<Response<Body>> {
         if hyper_tungstenite::is_upgrade_request(&request) {
-            if request.uri().path() == "/" {
+            if request.uri().path() == "/ws" {
                 let (response, websocket) = hyper_tungstenite::upgrade(&mut request, None)?;
 
                 // Spawn a task to handle the websocket connection.
@@ -92,24 +92,41 @@ impl WebSocketServer {
         let websocket = websocket.await?;
         let (mut sender, mut receiver) = websocket.split();
 
-        {
-            let image = image_handle.get_image().await;
-            let mut writer = Vec::new();
-            let encoder = png::PngEncoder::new(&mut writer);
-            encoder.write_image(
-                image.as_raw(),
-                image.width(),
-                image.height(),
-                ColorType::Rgba8,
-            )?;
-            sender.send(Message::Binary(writer)).await?;
-        }
+        let img_future = tokio::spawn(async move {
+            loop {
+                let data = {
+                    let image = image_handle.get_image().await;
+                    let mut writer = Vec::new();
+                    let encoder = png::PngEncoder::new(&mut writer);
+                    if encoder
+                        .write_image(
+                            image.as_raw(),
+                            image.width(),
+                            image.height(),
+                            ColorType::Rgba8,
+                        )
+                        .is_err()
+                    {
+                        continue;
+                    }
+
+                    writer
+                };
+                
+                if sender.send(Message::Binary(data)).await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        });
 
         while let Some(message) = receiver.next().await {
             match message? {
                 _ => {}
             }
         }
+
+        tokio::join!(img_future);
 
         Ok(())
     }

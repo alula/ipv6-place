@@ -1,12 +1,12 @@
 use super::NetworkBackend;
-use crate::{place::SharedImageHandle, settings::Settings, PResult, backend::PixelRequest};
+use crate::{backend::PixelRequest, place::SharedImageHandle, settings::Settings, PResult};
 use smoltcp::{
-    iface::{Config, Interface, SocketSet, Route},
+    iface::{Config, Interface, SocketSet},
     phy::{self, ChecksumCapabilities, Medium, TunTapInterface},
     socket::raw,
     wire::{
-        EthernetAddress, Icmpv6Packet, Icmpv6Repr, IpAddress, IpCidr, IpProtocol, IpVersion,
-        Ipv6Address, Ipv6Packet, Ipv6Repr, NdiscRepr,
+        Icmpv6Packet, Icmpv6Repr, IpAddress, IpCidr, IpProtocol, IpVersion, Ipv6Address,
+        Ipv6Packet, Ipv6Repr, UdpPacket, UdpRepr,
     },
 };
 use std::os::fd::AsRawFd;
@@ -35,8 +35,7 @@ impl SmoltcpNetworkBackend {
         config.random_seed = rand::random();
         // config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
 
-        let mut device =
-            TunTapInterface::new(&settings.backend.smoltcp.tun_iface, Medium::Ip)?;
+        let mut device = TunTapInterface::new(&settings.backend.smoltcp.tun_iface, Medium::Ip)?;
 
         let prefix: Ipv6Address = settings.backend.prefix48.into();
 
@@ -69,67 +68,129 @@ impl NetworkBackend for SmoltcpNetworkBackend {
 
             let mut sockets = SocketSet::new(vec![]);
 
-            let raw_rx_buffer =
+            const PACKET_BUFFER_SIZE: usize = 65536;
+
+            let icmp_rx_buffer = raw::PacketBuffer::new(
+                vec![raw::PacketMetadata::EMPTY; PACKET_BUFFER_SIZE],
+                vec![0; PACKET_BUFFER_SIZE * 512],
+            );
+            let icmp_tx_buffer =
                 raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY], vec![0; 256]);
-            let raw_tx_buffer =
-                raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY], vec![0; 256]);
-            let raw_socket = raw::Socket::new(
+            let icmp_socket = raw::Socket::new(
                 IpVersion::Ipv6,
                 IpProtocol::Icmpv6,
-                raw_rx_buffer,
-                raw_tx_buffer,
+                icmp_rx_buffer,
+                icmp_tx_buffer,
             );
 
-            let raw_handle = sockets.add(raw_socket);
+            let udp_rx_buffer = raw::PacketBuffer::new(
+                vec![raw::PacketMetadata::EMPTY; PACKET_BUFFER_SIZE],
+                vec![0; PACKET_BUFFER_SIZE * 512],
+            );
+            let udp_tx_buffer =
+                raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY], vec![0; 256]);
+            let udp_socket = raw::Socket::new(
+                IpVersion::Ipv6,
+                IpProtocol::Udp,
+                udp_rx_buffer,
+                udp_tx_buffer,
+            );
+
+            let icmp_handle = sockets.add(icmp_socket);
+            let udp_handle = sockets.add(udp_socket);
             let fd = self.device.as_raw_fd();
+            let ignored_caps = ChecksumCapabilities::ignored();
 
             loop {
                 let timestamp = smoltcp::time::Instant::now();
                 self.interface
                     .poll(timestamp, &mut self.device, &mut sockets);
+                {
+                    let icmp_socket = sockets.get_mut::<raw::Socket>(icmp_handle);
 
-                let raw_socket = sockets.get_mut::<raw::Socket>(raw_handle);
+                    while icmp_socket.can_recv() {
+                        let buffer = match icmp_socket.recv() {
+                            Ok(buffer) => buffer,
+                            Err(_) => continue,
+                        };
+                        let packet = match Ipv6Packet::new_checked(buffer) {
+                            Ok(packet) => packet,
+                            Err(_) => continue,
+                        };
+                        let ipv6_parsed = match Ipv6Repr::parse(&packet) {
+                            Ok(repr) => repr,
+                            Err(_) => continue,
+                        };
 
-                while raw_socket.can_recv() {
-                    let buffer = match raw_socket.recv() {
-                        Ok(buffer) => buffer,
-                        Err(_) => continue,
-                    };
-                    let packet = match Ipv6Packet::new_checked(buffer) {
-                        Ok(packet) => packet,
-                        Err(_) => continue,
-                    };
-                    let ipv6_parsed = match Ipv6Repr::parse(&packet) {
-                        Ok(repr) => repr,
-                        Err(_) => continue,
-                    };
+                        log::trace!("Received packet {:?}", ipv6_parsed);
 
-                    log::debug!("Received packet {:?}", ipv6_parsed);
+                        let icmp_packet = match Icmpv6Packet::new_checked(packet.payload()) {
+                            Ok(packet) => packet,
+                            Err(_) => continue,
+                        };
 
-                    let icmp_packet = match Icmpv6Packet::new_checked(packet.payload()) {
-                        Ok(packet) => packet,
-                        Err(_) => continue,
-                    };
+                        let icmp_parsed = match Icmpv6Repr::parse(
+                            &ipv6_parsed.src_addr.into_address(),
+                            &ipv6_parsed.dst_addr.into_address(),
+                            &icmp_packet,
+                            &ignored_caps,
+                        ) {
+                            Ok(repr) => repr,
+                            Err(_) => continue,
+                        };
 
-                    let icmp_parsed = match Icmpv6Repr::parse(
-                        &ipv6_parsed.src_addr.into_address(),
-                        &ipv6_parsed.dst_addr.into_address(),
-                        &icmp_packet,
-                        &ChecksumCapabilities::default(),
-                    ) {
-                        Ok(repr) => repr,
-                        Err(_) => continue,
-                    };
-
-                    log::debug!("Received ICMP packet {:?}", icmp_parsed);
-
-                    match icmp_parsed {
-                        Icmpv6Repr::EchoRequest { .. } => {
-                            let req = PixelRequest::from_ipv6(&ipv6_parsed.src_addr.into());
-                            let (x, y) = req.pos;
-                            self.image.put_blocking(x as _, y as _, req.color.into_rgba32());
+                        match icmp_parsed {
+                            Icmpv6Repr::EchoRequest { .. } => {
+                                let req = PixelRequest::from_ipv6(&ipv6_parsed.dst_addr.into());
+                                let (x, y) = req.pos;
+                                self.image
+                                    .put_blocking(x as _, y as _, req.color, req.size == 2);
+                            }
+                            _ => {}
                         }
-                        _ => {}
+                    }
+                }
+
+                {
+                    let udp_socket = sockets.get_mut::<raw::Socket>(udp_handle);
+
+                    while udp_socket.can_recv() {
+                        let buffer = match udp_socket.recv() {
+                            Ok(buffer) => buffer,
+                            Err(_) => continue,
+                        };
+                        let packet = match Ipv6Packet::new_checked(buffer) {
+                            Ok(packet) => packet,
+                            Err(_) => continue,
+                        };
+                        let ipv6_parsed = match Ipv6Repr::parse(&packet) {
+                            Ok(repr) => repr,
+                            Err(_) => continue,
+                        };
+
+                        log::trace!("Received packet {:?}", ipv6_parsed);
+
+                        let udp_packet = match UdpPacket::new_checked(packet.payload()) {
+                            Ok(packet) => packet,
+                            Err(_) => continue,
+                        };
+
+                        let udp_parsed = match UdpRepr::parse(
+                            &udp_packet,
+                            &ipv6_parsed.src_addr.into_address(),
+                            &ipv6_parsed.dst_addr.into_address(),
+                            &ignored_caps,
+                        ) {
+                            Ok(repr) => repr,
+                            Err(_) => continue,
+                        };
+
+                        if udp_parsed.dst_port == 7 {
+                            let req = PixelRequest::from_ipv6(&ipv6_parsed.dst_addr.into());
+                            let (x, y) = req.pos;
+                            self.image
+                                .put_blocking(x as _, y as _, req.color, req.size == 2);
+                        }
                     }
                 }
 

@@ -1,51 +1,80 @@
 use image::{ImageFormat, Rgba, RgbaImage};
-use std::{fs::File, io::BufReader, path::PathBuf, sync::Arc};
+use std::{fs::File, io::BufReader, path::PathBuf, sync::Arc, cell::UnsafeCell};
 use tokio::{
     sync::{broadcast, RwLock, RwLockReadGuard},
     task::JoinHandle,
 };
 
-use crate::{settings::CanvasSettings, PResult};
+use crate::{settings::CanvasSettings, utils::Color, PResult};
 
 pub struct SharedImageHandle {
-    data: Arc<RwLock<RgbaImage>>,
+    data: Arc<UnsafeCell<RgbaImage>>,
 }
 
 impl SharedImageHandle {
     pub fn new(data: RgbaImage) -> SharedImageHandle {
         SharedImageHandle {
-            data: Arc::new(RwLock::new(data)),
+            data: Arc::new(UnsafeCell::new(data)),
         }
     }
 
-    pub async fn put(&self, x: u32, y: u32, colour: u32) {
-        let mut image = self.data.write().await;
-        image[(x, y)] = Rgba(colour.to_le_bytes());
+    pub async fn put(&self, x: u32, y: u32, color: Color, big: bool) {
+        // let mut image = self.data.write().await;
+        let image = unsafe { &mut *self.data.get() };
+        image[(x, y)] = color.into_rgba();
+        if big {
+            image[(x + 1, y)] = color.into_rgba();
+            image[(x, y + 1)] = color.into_rgba();
+            image[(x + 1, y + 1)] = color.into_rgba();
+        }
     }
 
-    pub fn put_blocking(&self, x: u32, y: u32, colour: u32) {
-        let mut image = self.data.blocking_write();
-        image[(x, y)] = Rgba(colour.to_le_bytes());
+    pub fn put_blocking(&self, x: u32, y: u32, color: Color, big: bool) {
+        // let mut image = self.data.blocking_write();
+        let image = unsafe { &mut *self.data.get() };
+        image[(x, y)] = color.into_rgba();
+        if big {
+            image[(x + 1, y)] = color.into_rgba();
+            image[(x, y + 1)] = color.into_rgba();
+            image[(x + 1, y + 1)] = color.into_rgba();
+        }
     }
 
     pub async fn get_dimensions(&self) -> (u32, u32) {
-        let image = self.data.read().await;
+        // let image = self.data.read().await;
+        let image = unsafe { &mut *self.data.get() };
         image.dimensions()
     }
 
     pub fn get_dimensions_blocking(&self) -> (u32, u32) {
-        let image = self.data.blocking_read();
+        // let image = self.data.blocking_read();
+        let image = unsafe { &mut *self.data.get() };
         image.dimensions()
     }
 
-    pub async fn get_image(&self) -> RwLockReadGuard<'_, RgbaImage> {
-        self.data.read().await
+    // pub async fn get_image(&self) -> RwLockReadGuard<'_, RgbaImage> {
+    //     self.data.read().await
+    // }
+
+    // pub fn get_image_blocking(&self) -> RwLockReadGuard<'_, RgbaImage> {
+    //     self.data.blocking_read()
+    // }
+
+    pub async fn get_image(&self) -> &RgbaImage {
+        // let image = self.data.read().await;
+        let image = unsafe { &mut *self.data.get() };
+        image
     }
 
-    pub fn get_image_blocking(&self) -> RwLockReadGuard<'_, RgbaImage> {
-        self.data.blocking_read()
+    pub fn get_image_blocking(&self) -> &RgbaImage {
+        // let image = self.data.blocking_read();
+        let image = unsafe { &mut *self.data.get() };
+        image
     }
 }
+
+unsafe impl Send for SharedImageHandle {}
+unsafe impl Sync for SharedImageHandle {}
 
 impl Clone for SharedImageHandle {
     fn clone(&self) -> Self {
@@ -121,10 +150,6 @@ impl Place {
         })
     }
 
-    pub fn put(&mut self, x: u32, y: u32, colour: u32) {
-        self.image.put_blocking(x, y, colour);
-    }
-
     pub fn save(&self) -> PResult<()> {
         if self.path == PathBuf::from("") {
             return Err("No path to save to".into());
@@ -175,13 +200,14 @@ mod test {
                 place.image.put_blocking(
                     x,
                     y,
-                    u32::from_le_bytes([
+                    Color::new(
                         ((x as f64 / 512.0) * 255.0) as u8,
                         ((y as f64 / 512.0) * 255.0) as u8,
                         // ((!((x & y) * (x | y)) as f64 / 512.0) * 255.0) as u8,
                         ((!((x & y) * (x | y)) as f64 / 512.0) * 255.0) as u8,
                         255,
-                    ]),
+                    ),
+                    false
                 );
                 // if x == y {
                 //     place.put(x, y, 0xffffffff);

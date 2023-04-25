@@ -35,9 +35,8 @@ impl PixelRequest {
     pub const fn from_ipv6(ip: &Ipv6Addr) -> Self {
         let octets = ip.segments();
 
-        let size = ((octets[3] & 0x3000) >> 12) as u8;
         // clamp size to 1 or 2 (without branching)
-        let size = (size & 2) | 1;
+        let size = (((octets[3] & 0x3000) >> 13) + 1) as u8;
 
         let x = octets[3] & 0xfff;
         let y = octets[4] & 0xfff;

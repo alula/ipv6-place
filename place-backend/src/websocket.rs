@@ -116,7 +116,7 @@ impl WebSocketServer {
                 if sender.send(Message::Binary(data)).await.is_err() {
                     break;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(66)).await;
             }
         });
 

@@ -59,6 +59,13 @@ pub struct PacketCounter {
 }
 
 impl PacketCounter {
+    pub fn new() -> Arc<PacketCounter> {
+        Arc::new(PacketCounter {
+            pps: AtomicU32::new(0),
+            counter: AtomicU32::new(0),
+        })
+    }
+
     #[inline]
     pub fn increment(&self) {
         self.counter
@@ -71,12 +78,19 @@ impl PacketCounter {
         pps
     }
 
-    pub async fn pps_counter_task(self: Arc<Self>, pps_sender: broadcast::Sender<u32>) -> PResult<()> {
+    async fn pps_counter_task(self: Arc<Self>, pps_sender: broadcast::Sender<u32>) -> PResult<()> {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             let pps = self.reset_pps();
             pps_sender.send(pps)?;
         }
+    }
+
+    pub fn start_pps_counter(
+        self: Arc<Self>,
+        pps_sender: broadcast::Sender<u32>,
+    ) -> JoinHandle<PResult<()>> {
+        tokio::spawn(self.pps_counter_task(pps_sender))
     }
 }
 
@@ -87,10 +101,13 @@ pub trait NetworkBackend: Send + Sync {
 pub fn backend_factory(
     settings: &Settings,
     image: SharedImageHandle,
+    packet_counter: Arc<PacketCounter>,
 ) -> PResult<Box<dyn NetworkBackend>> {
     match settings.backend.backend_type {
         #[cfg(feature = "backend-smoltcp")]
-        BackendType::Smoltcp => smoltcp::SmoltcpNetworkBackend::new(&settings, image),
+        BackendType::Smoltcp => {
+            smoltcp::SmoltcpNetworkBackend::new(&settings, image, packet_counter)
+        }
 
         #[allow(unreachable_patterns)]
         _ => Err(format!(

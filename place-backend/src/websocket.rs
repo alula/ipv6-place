@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::SharedContext;
 use crate::{place::SharedImageHandle, settings::Settings, PResult};
 use futures::{stream::StreamExt, SinkExt};
 use hyper::{Body, Request, Response};
@@ -54,7 +55,7 @@ impl WebSocketServer {
     async fn handle_request(
         mut request: Request<Body>,
         serialized_config: &'static str,
-        image_handle: SharedImageHandle,
+        shared_context: SharedContext,
     ) -> PResult<Response<Body>> {
         if hyper_tungstenite::is_upgrade_request(&request) {
             if request.uri().path() == "/ws" {
@@ -62,7 +63,7 @@ impl WebSocketServer {
 
                 // Spawn a task to handle the websocket connection.
                 tokio::spawn(async move {
-                    if let Err(e) = WebSocketServer::serve_websocket(websocket, image_handle).await
+                    if let Err(e) = WebSocketServer::serve_websocket(websocket, shared_context).await
                     {
                         log::error!("Error in websocket connection: {}", e);
                     }
@@ -87,15 +88,21 @@ impl WebSocketServer {
 
     async fn serve_websocket(
         websocket: HyperWebsocket,
-        image_handle: SharedImageHandle,
+        mut shared_context: SharedContext,
     ) -> PResult<()> {
         let websocket = websocket.await?;
         let (mut sender, mut receiver) = websocket.split();
 
-        let img_future = tokio::spawn(async move {
+        let sender_future = tokio::spawn(async move {
             loop {
+                if let Ok(pps) = shared_context.pps_receiver.try_recv()  {
+                    if sender.feed(Message::Text(format!("{{\"evt\":{}}}", pps))).await.is_err() {
+                        break;
+                    }
+                }
+
                 let data = {
-                    let image = image_handle.get_image().await;
+                    let image = shared_context.image.get_image().await;
                     let mut writer = Vec::new();
                     let encoder = png::PngEncoder::new(&mut writer);
                     if encoder
@@ -113,7 +120,7 @@ impl WebSocketServer {
                     writer
                 };
                 
-                if sender.send(Message::Binary(data)).await.is_err() {
+                if sender.feed(Message::Binary(data)).await.is_err() {
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(66)).await;
@@ -126,12 +133,12 @@ impl WebSocketServer {
             }
         }
 
-        tokio::join!(img_future);
+        tokio::join!(sender_future);
 
         Ok(())
     }
 
-    async fn run(&mut self, image_handle: SharedImageHandle) -> PResult<()> {
+    async fn run(&mut self, shared_context: SharedContext) -> PResult<()> {
         // The config doesn't change during lifetime of the server, so we can serialize it and turn it
         // into &'static str to avoid making redundant copies of the string on every request.
         let serialized_config: &'static str =
@@ -141,7 +148,7 @@ impl WebSocketServer {
             let (stream, addr) = self.socket.accept().await?;
             log::info!("New connection from {}", addr);
 
-            let image_handle = image_handle.clone();
+            let shared_context = shared_context.clone();
             let connection = self
                 .http
                 .serve_connection(
@@ -150,7 +157,7 @@ impl WebSocketServer {
                         WebSocketServer::handle_request(
                             request,
                             serialized_config,
-                            image_handle.clone(),
+                            shared_context.clone(),
                         )
                     }),
                 )
@@ -164,7 +171,7 @@ impl WebSocketServer {
         }
     }
 
-    pub fn start_server(mut self, image_handle: SharedImageHandle) -> JoinHandle<PResult<()>> {
-        tokio::spawn(async move { self.run(image_handle).await })
+    pub fn start_server(mut self, shared_context: SharedContext) -> JoinHandle<PResult<()>> {
+        tokio::spawn(async move { self.run(shared_context).await })
     }
 }

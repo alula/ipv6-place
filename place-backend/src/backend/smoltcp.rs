@@ -1,4 +1,4 @@
-use super::NetworkBackend;
+use super::{NetworkBackend, PacketCounter};
 use crate::{backend::PixelRequest, place::SharedImageHandle, settings::Settings, PResult};
 use smoltcp::{
     iface::{Config, Interface, SocketSet},
@@ -9,13 +9,14 @@ use smoltcp::{
         Ipv6Packet, Ipv6Repr, UdpPacket, UdpRepr,
     },
 };
-use std::os::fd::AsRawFd;
+use std::{os::fd::AsRawFd, sync::Arc};
 use tokio::task::JoinHandle;
 
 pub struct SmoltcpNetworkBackend {
     image: SharedImageHandle,
     device: TunTapInterface,
     interface: Interface,
+    packet_counter: Arc<PacketCounter>,
     recv_buffer_size: usize,
 }
 
@@ -31,7 +32,11 @@ fn or_addr(addr: Ipv6Address, mask: Ipv6Address) -> Ipv6Address {
 }
 
 impl SmoltcpNetworkBackend {
-    pub fn new(settings: &Settings, image: SharedImageHandle) -> PResult<Box<dyn NetworkBackend>> {
+    pub fn new(
+        settings: &Settings,
+        image: SharedImageHandle,
+        packet_counter: Arc<PacketCounter>,
+    ) -> PResult<Box<dyn NetworkBackend>> {
         let mut config = Config::new(smoltcp::wire::HardwareAddress::Ip);
         config.random_seed = rand::random();
         // config.hardware_addr = Some(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into());
@@ -54,6 +59,7 @@ impl SmoltcpNetworkBackend {
             image,
             device,
             interface,
+            packet_counter,
             recv_buffer_size: settings.backend.smoltcp.recv_buffer_size,
         }))
     }
@@ -66,9 +72,6 @@ unsafe impl Sync for SmoltcpNetworkBackend {}
 impl NetworkBackend for SmoltcpNetworkBackend {
     fn start(mut self: Box<Self>) -> JoinHandle<PResult<()>> {
         tokio::task::spawn_blocking(move || {
-            let dimensions = self.image.get_dimensions_blocking();
-            let (width, height) = (dimensions.0 as u16, dimensions.1 as u16);
-
             let mut sockets = SocketSet::new(vec![]);
 
             let icmp_rx_buffer = raw::PacketBuffer::new(
@@ -146,6 +149,7 @@ impl NetworkBackend for SmoltcpNetworkBackend {
                                 let (x, y) = req.pos;
                                 self.image
                                     .put_blocking(x as _, y as _, req.color, req.size == 2);
+                                self.packet_counter.increment();
                             }
                             _ => {}
                         }
@@ -191,6 +195,7 @@ impl NetworkBackend for SmoltcpNetworkBackend {
                             let (x, y) = req.pos;
                             self.image
                                 .put_blocking(x as _, y as _, req.color, req.size == 2);
+                            self.packet_counter.increment();
                         }
                     }
                 }

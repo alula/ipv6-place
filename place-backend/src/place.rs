@@ -21,30 +21,27 @@ impl SharedImageHandle {
     pub async fn put(&self, x: u32, y: u32, color: Color, big: bool) {
         let mut image = self.data.write().await;
         // let image = unsafe { &mut *self.data.get() };
-        if (x, y) >= image.dimensions() {
+        if x >= image.dimensions().0 || y >= image.dimensions().1 {
             return;
         }
-
-        image[(x, y)] = color.into_rgba();
+        
+        if let Some(i) = image.get_pixel_mut_checked(x, y) { *i = color.into_rgba() };
         if big {
-            image[(x + 1, y)] = color.into_rgba();
-            image[(x, y + 1)] = color.into_rgba();
-            image[(x + 1, y + 1)] = color.into_rgba();
+            if let Some(i) = image.get_pixel_mut_checked(x + 1, y) { *i = color.into_rgba() };
+            if let Some(i) = image.get_pixel_mut_checked(x, y + 1) { *i = color.into_rgba() };
+            if let Some(i) = image.get_pixel_mut_checked(x + 1, y + 1) { *i = color.into_rgba() };
         }
     }
 
     pub fn put_blocking(&self, x: u32, y: u32, color: Color, big: bool) {
         let mut image = self.data.blocking_write();
         // let image = unsafe { &mut *self.data.get() };
-        if (x, y) >= image.dimensions() {
-            return;
-        }
-
-        image[(x, y)] = color.into_rgba();
+        
+        if let Some(i) = image.get_pixel_mut_checked(x, y) { *i = color.into_rgba() };
         if big {
-            image[(x + 1, y)] = color.into_rgba();
-            image[(x, y + 1)] = color.into_rgba();
-            image[(x + 1, y + 1)] = color.into_rgba();
+            if let Some(i) = image.get_pixel_mut_checked(x + 1, y) { *i = color.into_rgba() };
+            if let Some(i) = image.get_pixel_mut_checked(x, y + 1) { *i = color.into_rgba() };
+            if let Some(i) = image.get_pixel_mut_checked(x + 1, y + 1) { *i = color.into_rgba() };
         }
     }
 

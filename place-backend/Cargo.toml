@@ -1,12 +1,32 @@
 [package]
+edition = "2021"
 name = "place-backend"
 version = "0.0.0"
-edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# Enable optimizations on external crates in debug mode for better performance, 
+# notably for "image" crate.
+[profile.dev.package."*"]
+opt-level = 3
+overflow-checks = false
+
+[features]
+backend-pcap = []
+backend-smoltcp = ["smoltcp"]
+default = ["backend-smoltcp", "backend-pcap"]
 
 [dependencies]
+config = {version = "0.13.1", default-features = false, features = ["toml"]}
 futures = "0.3.28"
+hyper = {version = "0.14.18", features = ["http1", "server", "tcp"]}
+hyper-tungstenite = "0.9"
 image = "0.24.6"
+log = "0.4"
+pretty_env_logger = "0.4.0"
+rand = "0.8.5"
+serde = {version = "1.0.160", features = ["derive"]}
+serde_json = "1.0.96"
+# Need a custom fork to support disabling ICMPv6 responses and processing of raw packets.
+smoltcp = {git = "https://github.com/alula/smoltcp.git", rev = "0d78ce4e1bd8fc4f804a867dd2cfc12f48cbbfa4", optional = true, default-features = false, features = ["medium-ip", "socket-raw", "proto-ipv6", "phy-tuntap_interface", "std", "log", "async"]}
+# smoltcp = {path = "../../smoltcp", optional = true, default-features = false, features = ["medium-ip", "socket-raw", "socket-icmp", "proto-ipv6", "phy-tuntap_interface", "std", "log", "async"]}
 surge-ping = "0.8.0"
-tokio = { version = "1.27.0", features = ["full"] }
+tokio = {version = "1.27.0", features = ["full"]}

@@ -1,3 +1,7 @@
 /target
 .env
 .vscode/
+log
+
+config.toml
+*.png

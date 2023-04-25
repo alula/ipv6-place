@@ -1,0 +1,23 @@
+[backend]
+# A /48 IPv6 prefix to listen for pings on.
+prefix48 = "2602:fa9b:42::"
+# The backend to use. Available options are: "smoltcp".
+backend_type = "smoltcp"
+
+[backend.smoltcp]
+# Name of TUN interface to use. Default is "tun0".
+tun_iface = "tun0"
+# Size of receive buffer (in number of packets). Default is 65536.
+recv_buffer_size = 65536
+
+[canvas]
+# Size of the canvas in pixels. Acceptable values are 16-4096, default is 512.
+size = 512
+# The background color of the canvas in form of "#rrggbb" string, default is "#ffffff".
+background_color = "#ffffff"
+# The filename to save the canvas to, default is "place.png".
+filename = "place.png"
+
+[websocket]
+# Listening address:port for the WebSocket server, default is "[::]:2137".
+listen_addr = "[::]:2137"

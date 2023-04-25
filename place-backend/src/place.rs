@@ -1,5 +1,5 @@
-use image::{ImageFormat, Rgba, RgbaImage};
-use std::{fs::File, io::BufReader, path::PathBuf, sync::Arc, cell::UnsafeCell};
+use image::{ImageFormat, RgbaImage};
+use std::{fs::File, io::BufReader, path::PathBuf, sync::Arc};
 use tokio::{
     sync::{broadcast, RwLock, RwLockReadGuard},
     task::JoinHandle,
@@ -8,19 +8,23 @@ use tokio::{
 use crate::{settings::CanvasSettings, utils::Color, PResult};
 
 pub struct SharedImageHandle {
-    data: Arc<UnsafeCell<RgbaImage>>,
+    data: Arc<RwLock<RgbaImage>>,
 }
 
 impl SharedImageHandle {
     pub fn new(data: RgbaImage) -> SharedImageHandle {
         SharedImageHandle {
-            data: Arc::new(UnsafeCell::new(data)),
+            data: Arc::new(RwLock::new(data)),
         }
     }
 
     pub async fn put(&self, x: u32, y: u32, color: Color, big: bool) {
-        // let mut image = self.data.write().await;
-        let image = unsafe { &mut *self.data.get() };
+        let mut image = self.data.write().await;
+        // let image = unsafe { &mut *self.data.get() };
+        if (x, y) >= image.dimensions() {
+            return;
+        }
+
         image[(x, y)] = color.into_rgba();
         if big {
             image[(x + 1, y)] = color.into_rgba();
@@ -30,8 +34,12 @@ impl SharedImageHandle {
     }
 
     pub fn put_blocking(&self, x: u32, y: u32, color: Color, big: bool) {
-        // let mut image = self.data.blocking_write();
-        let image = unsafe { &mut *self.data.get() };
+        let mut image = self.data.blocking_write();
+        // let image = unsafe { &mut *self.data.get() };
+        if (x, y) >= image.dimensions() {
+            return;
+        }
+
         image[(x, y)] = color.into_rgba();
         if big {
             image[(x + 1, y)] = color.into_rgba();
@@ -41,36 +49,34 @@ impl SharedImageHandle {
     }
 
     pub async fn get_dimensions(&self) -> (u32, u32) {
-        // let image = self.data.read().await;
-        let image = unsafe { &mut *self.data.get() };
+        let image = self.data.read().await;
+        // let image = unsafe { &mut *self.data.get() };
         image.dimensions()
     }
 
     pub fn get_dimensions_blocking(&self) -> (u32, u32) {
-        // let image = self.data.blocking_read();
-        let image = unsafe { &mut *self.data.get() };
+        let image = self.data.blocking_read();
+        // let image = unsafe { &mut *self.data.get() };
         image.dimensions()
     }
 
-    // pub async fn get_image(&self) -> RwLockReadGuard<'_, RgbaImage> {
-    //     self.data.read().await
-    // }
-
-    // pub fn get_image_blocking(&self) -> RwLockReadGuard<'_, RgbaImage> {
-    //     self.data.blocking_read()
-    // }
-
-    pub async fn get_image(&self) -> &RgbaImage {
-        // let image = self.data.read().await;
-        let image = unsafe { &mut *self.data.get() };
-        image
+    pub async fn get_image(&self) -> RwLockReadGuard<'_, RgbaImage> {
+        self.data.read().await
     }
 
-    pub fn get_image_blocking(&self) -> &RgbaImage {
-        // let image = self.data.blocking_read();
-        let image = unsafe { &mut *self.data.get() };
-        image
+    pub fn get_image_blocking(&self) -> RwLockReadGuard<'_, RgbaImage> {
+        self.data.blocking_read()
     }
+
+    // pub async fn get_image(&self) -> &RgbaImage {
+    //     let image = unsafe { &mut *self.data.get() };
+    //     image
+    // }
+
+    // pub fn get_image_blocking(&self) -> &RgbaImage {
+    //     let image = unsafe { &mut *self.data.get() };
+    //     image
+    // }
 }
 
 unsafe impl Send for SharedImageHandle {}
@@ -207,7 +213,7 @@ mod test {
                         ((!((x & y) * (x | y)) as f64 / 512.0) * 255.0) as u8,
                         255,
                     ),
-                    false
+                    false,
                 );
                 // if x == y {
                 //     place.put(x, y, 0xffffffff);

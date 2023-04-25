@@ -67,6 +67,7 @@ impl NetworkBackend for SmoltcpNetworkBackend {
     fn start(mut self: Box<Self>) -> JoinHandle<PResult<()>> {
         tokio::task::spawn_blocking(move || {
             let dimensions = self.image.get_dimensions_blocking();
+            let (width, height) = (dimensions.0 as u16, dimensions.1 as u16);
 
             let mut sockets = SocketSet::new(vec![]);
 

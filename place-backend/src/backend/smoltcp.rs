@@ -16,6 +16,7 @@ pub struct SmoltcpNetworkBackend {
     image: SharedImageHandle,
     device: TunTapInterface,
     interface: Interface,
+    recv_buffer_size: usize,
 }
 
 fn or_addr(addr: Ipv6Address, mask: Ipv6Address) -> Ipv6Address {
@@ -53,6 +54,7 @@ impl SmoltcpNetworkBackend {
             image,
             device,
             interface,
+            recv_buffer_size: settings.backend.smoltcp.recv_buffer_size,
         }))
     }
 }
@@ -68,11 +70,9 @@ impl NetworkBackend for SmoltcpNetworkBackend {
 
             let mut sockets = SocketSet::new(vec![]);
 
-            const PACKET_BUFFER_SIZE: usize = 65536;
-
             let icmp_rx_buffer = raw::PacketBuffer::new(
-                vec![raw::PacketMetadata::EMPTY; PACKET_BUFFER_SIZE],
-                vec![0; PACKET_BUFFER_SIZE * 512],
+                vec![raw::PacketMetadata::EMPTY; self.recv_buffer_size],
+                vec![0; self.recv_buffer_size * 512],
             );
             let icmp_tx_buffer =
                 raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY], vec![0; 256]);
@@ -84,8 +84,8 @@ impl NetworkBackend for SmoltcpNetworkBackend {
             );
 
             let udp_rx_buffer = raw::PacketBuffer::new(
-                vec![raw::PacketMetadata::EMPTY; PACKET_BUFFER_SIZE],
-                vec![0; PACKET_BUFFER_SIZE * 512],
+                vec![raw::PacketMetadata::EMPTY; self.recv_buffer_size],
+                vec![0; self.recv_buffer_size * 512],
             );
             let udp_tx_buffer =
                 raw::PacketBuffer::new(vec![raw::PacketMetadata::EMPTY], vec![0; 256]);

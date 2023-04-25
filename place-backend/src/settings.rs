@@ -67,11 +67,19 @@ pub struct SmoltcpSettings {
     /// Name of TAP interface to use. Default is "tun0".
     #[serde(default = "SmoltcpSettings::default_tun_iface")]
     pub tun_iface: String,
+
+    /// Size of receive buffer (in number of packets). Default is 65536.
+    #[serde(default = "SmoltcpSettings::default_recv_buffer_size")]
+    pub recv_buffer_size: usize,
 }
 
 impl SmoltcpSettings {
     fn default_tun_iface() -> String {
         "tun0".to_string()
+    }
+
+    fn default_recv_buffer_size() -> usize {
+        65536
     }
 }
 

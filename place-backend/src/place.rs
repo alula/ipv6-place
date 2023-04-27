@@ -19,13 +19,12 @@ pub struct SharedImageHandle {
 impl SharedImageHandle {
     pub fn new(data: RgbaImage) -> SharedImageHandle {
         SharedImageHandle {
-            // data: Arc::new(RwLock::new(data)),
             data: Arc::new(UnsafeCell::new(data)),
         }
     }
 
     pub fn put(&self, x: u32, y: u32, color: Color, big: bool) {
-        // let mut image = self.data.write().await;
+        // SAFETY: See comment in SharedImageHandle for details.
         let image = unsafe { &mut *self.data.get() };
         if x >= image.dimensions().0 || y >= image.dimensions().1 {
             return;
@@ -48,6 +47,7 @@ impl SharedImageHandle {
     }
 
     pub fn get_dimensions(&self) -> (u32, u32) {
+        // SAFETY: Image size is assumed to never change, so reading it is always safe.
         let image = unsafe { &mut *self.data.get() };
         image.dimensions()
     }

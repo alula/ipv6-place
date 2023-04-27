@@ -147,8 +147,7 @@ impl NetworkBackend for SmoltcpNetworkBackend {
                             Icmpv6Repr::EchoRequest { .. } => {
                                 let req = PixelRequest::from_ipv6(&ipv6_parsed.dst_addr.into());
                                 let (x, y) = req.pos;
-                                self.image
-                                    .put_blocking(x as _, y as _, req.color, req.size == 2);
+                                self.image.put(x as _, y as _, req.color, req.size == 2);
                                 self.packet_counter.increment();
                             }
                             _ => {}
@@ -193,8 +192,7 @@ impl NetworkBackend for SmoltcpNetworkBackend {
                         if udp_parsed.dst_port == 7 {
                             let req = PixelRequest::from_ipv6(&ipv6_parsed.dst_addr.into());
                             let (x, y) = req.pos;
-                            self.image
-                                .put_blocking(x as _, y as _, req.color, req.size == 2);
+                            self.image.put(x as _, y as _, req.color, req.size == 2);
                             self.packet_counter.increment();
                         }
                     }

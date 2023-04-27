@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
 use crate::SharedContext;
-use crate::{place::SharedImageHandle, settings::Settings, PResult};
+use crate::{settings::Settings, PResult};
 use futures::{stream::StreamExt, SinkExt};
 use hyper::{Body, Request, Response};
 use hyper_tungstenite::{tungstenite::Message, HyperWebsocket};
-use image::ImageEncoder;
 use image::{codecs::png, ColorType};
+use image::{ImageBuffer, ImageEncoder, Rgba};
 use serde::{Deserialize, Serialize};
 use tokio::{net::TcpListener, task::JoinHandle};
 
@@ -63,7 +61,8 @@ impl WebSocketServer {
 
                 // Spawn a task to handle the websocket connection.
                 tokio::spawn(async move {
-                    if let Err(e) = WebSocketServer::serve_websocket(websocket, shared_context).await
+                    if let Err(e) =
+                        WebSocketServer::serve_websocket(websocket, shared_context).await
                     {
                         log::error!("Error in websocket connection: {}", e);
                     }
@@ -94,15 +93,28 @@ impl WebSocketServer {
         let (mut sender, mut receiver) = websocket.split();
 
         let sender_future = tokio::spawn(async move {
+            let mut image = {
+                let (width, height) = shared_context.image.get_dimensions();
+                ImageBuffer::<Rgba<u8>, Vec<u8>>::new(width, height)
+            };
+
             loop {
-                if let Ok(pps) = shared_context.pps_receiver.try_recv()  {
-                    if sender.feed(Message::Text(format!("{{\"evt\":{}}}", pps))).await.is_err() {
+                if let Ok(pps) = shared_context.pps_receiver.try_recv() {
+                    if sender
+                        .feed(Message::Text(format!("{{\"evt\":{}}}", pps)))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
 
                 let data = {
-                    let image = shared_context.image.get_image().await;
+                    {
+                        let shared_image = unsafe { shared_context.image.get_image() };
+                        image.copy_from_slice(shared_image.as_raw().as_slice());
+                    }
+
                     let mut writer = Vec::new();
                     let encoder = png::PngEncoder::new(&mut writer);
                     if encoder
@@ -119,7 +131,7 @@ impl WebSocketServer {
 
                     writer
                 };
-                
+
                 if sender.feed(Message::Binary(data)).await.is_err() {
                     break;
                 }
@@ -129,11 +141,12 @@ impl WebSocketServer {
 
         while let Some(message) = receiver.next().await {
             match message? {
+                Message::Close(_) => break,
                 _ => {}
             }
         }
 
-        tokio::join!(sender_future);
+        sender_future.abort();
 
         Ok(())
     }

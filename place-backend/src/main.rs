@@ -1,5 +1,6 @@
-use std::sync::Arc;
-
+use futures::stream::StreamExt;
+use signal_hook::consts::signal::*;
+use signal_hook_tokio::Signals;
 use tokio::{sync::broadcast, task::JoinSet};
 
 mod backend;
@@ -46,10 +47,31 @@ async fn main() -> PResult<()> {
         image: place.image.clone(),
         pps_receiver,
     };
+    let diffing_task = place.start_diffing_task();
+
     join_set.spawn(async move { packet_counter.start_pps_counter(pps_sender).await? });
     join_set.spawn(async move { websocket.start_server(shared_context).await? });
-    join_set.spawn(async move { place.start_diffing_task().await? });
+    join_set.spawn(async move { diffing_task.await? });
     join_set.spawn(async move { backend.start().await? });
+
+    // We need to gracefully handle SIGINT and SIGQUIT, needed so saving PGO data works properly.
+    // Also we can use this to save the image on exit.
+    tokio::spawn(async move {
+        let mut signals = Signals::new(&[SIGINT, SIGQUIT]).unwrap();
+        let handle = signals.handle();
+
+        while let Some(signal) = signals.next().await {
+            log::info!("Quitting due to signal {}", signal);
+            break;
+        }
+
+        handle.close();
+        if let Err(e) = place.save() {
+            log::error!("Failed to save image: {}", e);
+        }
+
+        std::process::exit(0);
+    });
 
     while let Some(result) = join_set.join_next().await {
         result??;

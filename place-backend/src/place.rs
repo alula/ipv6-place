@@ -1,82 +1,67 @@
-use image::{ImageFormat, RgbaImage};
-use std::{fs::File, io::BufReader, path::PathBuf, sync::Arc};
-use tokio::{
-    sync::{broadcast, RwLock, RwLockReadGuard},
-    task::JoinHandle,
-};
+use image::{ImageBuffer, ImageFormat, Rgba, RgbaImage};
+use std::{cell::UnsafeCell, fs::File, io::BufReader, path::PathBuf, sync::Arc};
+use tokio::{sync::broadcast, task::JoinHandle};
 
 use crate::{settings::CanvasSettings, utils::Color, PResult};
 
+/// (UN)SAFETY NOTE:
+/// We avoid locking here to get a 10-25% performance boost.
+///
+/// Data consistency doesn't really matter in our case, but use of this buffer
+/// must be taken with care or we can easily shoot ourselves in the foot.
+/// Eg. this introduced an issue in optimized builds that caused PNGs sent via websocket
+/// to be corrupted, because the image changed while it was being encoded on another thread.
+/// This has been easily worked around by making a copy of the image before encoding it.
 pub struct SharedImageHandle {
-    data: Arc<RwLock<RgbaImage>>,
+    data: Arc<UnsafeCell<RgbaImage>>,
 }
 
 impl SharedImageHandle {
     pub fn new(data: RgbaImage) -> SharedImageHandle {
         SharedImageHandle {
-            data: Arc::new(RwLock::new(data)),
+            // data: Arc::new(RwLock::new(data)),
+            data: Arc::new(UnsafeCell::new(data)),
         }
     }
 
-    pub async fn put(&self, x: u32, y: u32, color: Color, big: bool) {
-        let mut image = self.data.write().await;
-        // let image = unsafe { &mut *self.data.get() };
+    pub fn put(&self, x: u32, y: u32, color: Color, big: bool) {
+        // let mut image = self.data.write().await;
+        let image = unsafe { &mut *self.data.get() };
         if x >= image.dimensions().0 || y >= image.dimensions().1 {
             return;
         }
-        
-        if let Some(i) = image.get_pixel_mut_checked(x, y) { *i = color.into_rgba() };
+
+        if let Some(i) = image.get_pixel_mut_checked(x, y) {
+            *i = color.into_rgba()
+        };
         if big {
-            if let Some(i) = image.get_pixel_mut_checked(x + 1, y) { *i = color.into_rgba() };
-            if let Some(i) = image.get_pixel_mut_checked(x, y + 1) { *i = color.into_rgba() };
-            if let Some(i) = image.get_pixel_mut_checked(x + 1, y + 1) { *i = color.into_rgba() };
+            if let Some(i) = image.get_pixel_mut_checked(x + 1, y) {
+                *i = color.into_rgba()
+            };
+            if let Some(i) = image.get_pixel_mut_checked(x, y + 1) {
+                *i = color.into_rgba()
+            };
+            if let Some(i) = image.get_pixel_mut_checked(x + 1, y + 1) {
+                *i = color.into_rgba()
+            };
         }
     }
 
-    pub fn put_blocking(&self, x: u32, y: u32, color: Color, big: bool) {
-        let mut image = self.data.blocking_write();
-        // let image = unsafe { &mut *self.data.get() };
-        
-        if let Some(i) = image.get_pixel_mut_checked(x, y) { *i = color.into_rgba() };
-        if big {
-            if let Some(i) = image.get_pixel_mut_checked(x + 1, y) { *i = color.into_rgba() };
-            if let Some(i) = image.get_pixel_mut_checked(x, y + 1) { *i = color.into_rgba() };
-            if let Some(i) = image.get_pixel_mut_checked(x + 1, y + 1) { *i = color.into_rgba() };
-        }
-    }
-
-    pub async fn get_dimensions(&self) -> (u32, u32) {
-        let image = self.data.read().await;
-        // let image = unsafe { &mut *self.data.get() };
+    pub fn get_dimensions(&self) -> (u32, u32) {
+        let image = unsafe { &mut *self.data.get() };
         image.dimensions()
     }
 
-    pub fn get_dimensions_blocking(&self) -> (u32, u32) {
-        let image = self.data.blocking_read();
-        // let image = unsafe { &mut *self.data.get() };
-        image.dimensions()
+    /// SAFETY: See comment in SharedImageHandle for details.
+    pub unsafe fn get_image(&self) -> &RgbaImage {
+        let image = unsafe { &mut *self.data.get() };
+        image
     }
-
-    pub async fn get_image(&self) -> RwLockReadGuard<'_, RgbaImage> {
-        self.data.read().await
-    }
-
-    pub fn get_image_blocking(&self) -> RwLockReadGuard<'_, RgbaImage> {
-        self.data.blocking_read()
-    }
-
-    // pub async fn get_image(&self) -> &RgbaImage {
-    //     let image = unsafe { &mut *self.data.get() };
-    //     image
-    // }
-
-    // pub fn get_image_blocking(&self) -> &RgbaImage {
-    //     let image = unsafe { &mut *self.data.get() };
-    //     image
-    // }
 }
 
+/// SAFETY: See comment in SharedImageHandle for details.
 unsafe impl Send for SharedImageHandle {}
+/// SAFETY: See comment in SharedImageHandle for details.
 unsafe impl Sync for SharedImageHandle {}
 
 impl Clone for SharedImageHandle {
@@ -158,8 +143,16 @@ impl Place {
             return Err("No path to save to".into());
         }
 
-        let image = self.image.get_image_blocking();
+        let mut image = {
+            let (width, height) = self.image.get_dimensions();
+            ImageBuffer::<Rgba<u8>, Vec<u8>>::new(width, height)
+        };
+
+        let shared_image = unsafe { self.image.get_image() };
+        image.copy_from_slice(shared_image.as_raw().as_slice());
+
         image.save(&self.path)?;
+
         Ok(())
     }
 
@@ -197,10 +190,10 @@ mod test {
         .unwrap();
 
         let th = 10;
-        let (x, y) = place.image.get_dimensions_blocking();
+        let (x, y) = place.image.get_dimensions();
         for x in 0..x {
             for y in 0..y {
-                place.image.put_blocking(
+                place.image.put(
                     x,
                     y,
                     Color::new(

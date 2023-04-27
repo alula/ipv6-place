@@ -69,6 +69,7 @@ async fn main() -> PResult<()> {
         if let Err(e) = place.save() {
             log::error!("Failed to save image: {}", e);
         }
+        log::info!("Canvas saved.");
 
         std::process::exit(0);
     });

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel='stylesheet' href='/styles.css?h=1' />
+    <title>Place IPv6</title>
+</head>
+
+<body>
+    <div id="container">
+        <div id="main">
+            <h1>Place: IPv6 (Alula's Rust rewrite)</h1>
+            <p>Place down pixels on the canvas by pinging the below IP:</p>
+            <h2>2602:fa9b:202:<span class="c-yellow">S</span><span class="c-cyan">XXX</span>:<span
+                    class="c-cyan">YYY</span>:<span class="c-red">RR</span>:<span class="c-green">GG</span>:<span
+                    class="c-blue">BB</span></h2>
+            <p>where XXX and YYY are coordinates, in hex numbers, from 0 to 512, S is either 1 or 2 (for 1x1 or 2x2
+                pixels respectively), whereas RRGGBB make up a hex color.
+            </p>
+            <div id="cont">
+                <canvas id="cvs" width="512" height="512"></canvas>
+            </div>
+            <p><a href="https://discord.gg/2Um4vsS5Dc" target="_blank">Join our Discord</a> ~ a very dumb thing by <a
+                    href="//ziad87.net">ziad87</a></p>
+
+            <div id="phackerstyle">
+                <canvas id="c6"></canvas>
+                <div><span id="pps"></span></div>
+            </div>
+        </div>
+    </div>
+    <div id="warn">
+        <div id="warn-inner" style="border: 2px solid black;">
+            <h1>Explicit Content Warning</h1>
+            <p>The contents of this canvas are entirely unmoderated.</p>
+            <p>It may contain something offensive or pornographic.</p>
+            <button id="accept">I understand →</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('cvs');
+        const ctx = canvas.getContext("2d");
+
+        let mainWS = null;
+        let amt = 0;
+        let maxAmt = 0;
+        let maxVal = 100;
+
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // https://stackoverflow.com/questions/20475317/html5-load-a-png-buffer-into-a-canvas-for-streaming-purpose
+        function onBinaryMessage(input) {
+
+            const blob = new Blob([input], {
+                type: 'image/png'
+            });
+            const url = URL.createObjectURL(blob);
+            const img = new Image;
+
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0);
+                URL.revokeObjectURL(url);
+            }
+            img.src = url;
+        }
+
+        function connectWS() {
+        	if (location.hostname === "localhost") {
+	            mainWS = new WebSocket("ws://localhost:2137/ws");        	
+        	} else {
+	            mainWS = new WebSocket("wss://" + location.hostname + "/ws");
+            }
+            mainWS.onmessage = (data) => {
+
+                if (data.data instanceof Blob) {
+                    onBinaryMessage(data.data);
+                } else {
+                    let d = JSON.parse(data.data);
+                    amt = d.evt;
+                    if (amt > maxVal) maxVal = amt;
+                    if (amt > maxAmt) maxAmt = amt;
+                    dr();
+                }
+            }
+            mainWS.onclose = () => {
+                setTimeout(connectWS, 1000)
+            }
+        }
+
+        function tmGraph(cvs2, w, h, bs, bsy, gf, fg, df, dataFunction, gData = [], zeroGdata = false) {
+            let WIDTH = cvs2.width = w;
+            let HEIGHT = cvs2.height = h;
+            const DIFF = df;
+            let BOX_SIZE = bs;
+            let BOX_SIZEY = bsy;
+            const GRAPHCOLOR = gf;
+            const LINECOLOR = fg;
+
+            cvs2.style.imageRendering = "pixelated";
+            let ctx2 = cvs2.getContext('2d');
+            let graphCounter = 0;
+
+            let graphHistory = [...gData];
+            if (graphHistory.length < (WIDTH / DIFF) + 10 && zeroGdata) {
+                let amt = Math.round((WIDTH / DIFF) + 10);
+                graphHistory = [...(new Array(amt)).fill(1), ...gData]
+            }
+
+            function pushGraphHistory(y) {
+                graphHistory.push(y);
+                if (graphHistory.length > (WIDTH / DIFF) + 10) graphHistory.shift();
+            }
+
+            function getLine(x1, y1, x2, y2) {
+                let coords = new Array();
+                let dx = Math.abs(x2 - x1);
+                let dy = Math.abs(y2 - y1);
+                let sx = (x1 < x2) ? 1 : -1;
+                let sy = (y1 < y2) ? 1 : -1;
+                let err = dx - dy;
+                coords.push([x1, y1]);
+                while (!((x1 == x2) && (y1 == y2))) {
+                    let e2 = err << 1;
+                    if (e2 > -dy) {
+                        err -= dy;
+                        x1 += sx;
+                    }
+                    if (e2 < dx) {
+                        err += dx;
+                        y1 += sy;
+                    }
+                    coords.push([x1, y1]);
+                }
+                return coords;
+            }
+
+            function drawCoordsArr(arr) {
+                for (let a of arr) {
+                    ctx2.fillRect(a[0], a[1], 1, 1);
+                }
+            }
+
+            function draw() {
+                // Add data
+                pushGraphHistory(dataFunction(graphCounter));
+
+                // Clear graph
+                ctx2.fillStyle = "#000000";
+                ctx2.fillRect(0, 0, WIDTH, HEIGHT);
+                graphCounter++;
+
+                // Draw graph paper
+                ctx2.fillStyle = GRAPHCOLOR;
+                for (let i = 0; i < HEIGHT; i++) {
+                    (i + 1) % BOX_SIZEY === 0 && i != HEIGHT - 1 && ctx2.fillRect(0, i, WIDTH, 1);
+                }
+                for (let i = 0; i < WIDTH; i++) {
+                    (i + graphCounter * DIFF) % BOX_SIZE === 0 && ctx2.fillRect(i, 0, 1, HEIGHT);
+                }
+
+                // Draw graph lines
+                ctx2.fillStyle = LINECOLOR;
+                let rVal = null;
+                graphHistory.reverse();
+                for (let a in graphHistory) {
+                    let x = WIDTH - ((a) * DIFF);
+                    if (x <= 2) continue;
+                    let val = graphHistory[a];
+                    let valA = HEIGHT - Math.floor(val / (maxVal + ~~(maxVal / 10)) * HEIGHT);
+                    if (valA >= HEIGHT) valA = HEIGHT - 1;
+                    rVal && drawCoordsArr(getLine(rVal[0], rVal[1], x, valA));
+                    rVal = [x, valA];
+                }
+                graphHistory.reverse();
+            }
+
+            return draw;
+        }
+        let dr = tmGraph(document.querySelector('#c6'), 900, 79, 25, 25, "#008040", "lime", 2, (gc) => {
+            document.getElementById('pps').innerHTML = `<b>PPS cur/max</b><br>${amt}<br>${maxAmt}`
+            return amt;
+        }, [], true);
+
+        function start() {
+            document.getElementById('warn').style.display = "none";
+            document.getElementById('main').style.display = "block";
+            dr();
+            connectWS();
+        }
+
+        if (!localStorage["accepted_explicit"]) {
+            dr();
+            const accept = document.getElementById('accept');
+            accept.onclick = (e) => {
+                e.preventDefault();
+                localStorage['accepted_explicit'] = 1;
+                start();
+            };
+        } else start();
+        //const img = new Image(); 
+        //img.src = "cvs?" + Date.now();
+        //img.onload = s => ctx.drawImage(img, 0, 0);
+    </script>
+</body>
+
+</html>

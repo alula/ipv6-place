@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::SharedContext;
 use crate::{settings::Settings, PResult};
 use futures::{stream::StreamExt, SinkExt};
@@ -98,7 +100,10 @@ impl WebSocketServer {
                 ImageBuffer::<Rgba<u8>, Vec<u8>>::new(width, height)
             };
 
+            let frame_interval = std::time::Duration::from_millis(1000) / 15;
+
             loop {
+                let start = std::time::Instant::now();
                 if let Ok(pps) = shared_context.pps_receiver.try_recv() {
                     if sender
                         .feed(Message::Text(format!("{{\"evt\":{}}}", pps)))
@@ -116,7 +121,11 @@ impl WebSocketServer {
                     }
 
                     let mut writer = Vec::new();
-                    let encoder = png::PngEncoder::new(&mut writer);
+                    let encoder = png::PngEncoder::new_with_quality(
+                        &mut writer,
+                        png::CompressionType::Fast,
+                        png::FilterType::Adaptive,
+                    );
                     if encoder
                         .write_image(
                             image.as_raw(),
@@ -132,10 +141,22 @@ impl WebSocketServer {
                     writer
                 };
 
-                if sender.feed(Message::Binary(data)).await.is_err() {
+                if sender.send(Message::Binary(data)).await.is_err() {
                     break;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(66)).await;
+
+                let now = std::time::Instant::now();
+                let elapsed = now - start;
+
+                log::debug!("Elapsed = {:?}, interval = {:?}", elapsed, frame_interval);
+
+                if elapsed < frame_interval {
+                    tokio::time::sleep(frame_interval - elapsed).await;
+                } else {
+                    // give some time to calm down in case we're starting to get laggy
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+//                tokio::task::yield_now().await;
             }
         });
 

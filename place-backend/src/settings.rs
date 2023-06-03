@@ -48,6 +48,7 @@ impl CanvasSettings {
 #[serde(rename_all = "snake_case")]
 pub enum BackendType {
     Smoltcp,
+    Tun,
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,7 +56,7 @@ pub struct BackendSettings {
     /// A /48 IPv6 prefix to listen for pings on.
     pub prefix48: Ipv6Addr,
 
-    /// The backend to use. Available options are: "smoltcp".
+    /// The backend to use. Available options are: "smoltcp", "tun".
     pub backend_type: BackendType,
 
     /// Settings for the smoltcp backend.
@@ -64,7 +65,7 @@ pub struct BackendSettings {
 
 #[derive(Debug, Deserialize)]
 pub struct SmoltcpSettings {
-    /// Name of TAP interface to use. Default is "tun0".
+    /// Name of TUN interface to use. Default is "tun0".
     #[serde(default = "SmoltcpSettings::default_tun_iface")]
     pub tun_iface: String,
 

@@ -26,9 +26,6 @@ impl SharedImageHandle {
     pub fn put(&self, x: u32, y: u32, color: Color, big: bool) {
         // SAFETY: See comment in SharedImageHandle for details.
         let image = unsafe { &mut *self.data.get() };
-        if x >= image.dimensions().0 || y >= image.dimensions().1 {
-            return;
-        }
 
         if let Some(i) = image.get_pixel_mut_checked(x, y) {
             *i = color.into_rgba()

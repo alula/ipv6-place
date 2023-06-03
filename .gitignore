@@ -6,3 +6,5 @@ log
 config.toml
 *.png
 *.profdata
+perf.data
+test.perf

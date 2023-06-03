@@ -17,8 +17,10 @@ use crate::{
 
 #[cfg(feature = "backend-smoltcp")]
 mod smoltcp;
+#[cfg(feature = "backend-tun")]
+mod tun;
 
-#[cfg(not(all(feature = "backend-smoltcp")))]
+#[cfg(not(all(feature = "backend-smoltcp", feature = "backend-tun")))]
 compile_error!(
     "No backends enabled. Please enable at least one backend with the `backend-*` features."
 );
@@ -107,6 +109,11 @@ pub fn backend_factory(
         #[cfg(feature = "backend-smoltcp")]
         BackendType::Smoltcp => {
             smoltcp::SmoltcpNetworkBackend::new(&settings, image, packet_counter)
+        }
+
+        #[cfg(feature = "backend-tun")]
+        BackendType::Tun => {
+            tun::TunNetworkBackend::new(&settings, image, packet_counter)
         }
 
         #[allow(unreachable_patterns)]

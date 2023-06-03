@@ -126,32 +126,32 @@ impl NetworkBackend for SmoltcpNetworkBackend {
                             Err(_) => continue,
                         };
 
-                        log::trace!("Received packet {:?}", ipv6_parsed);
+                        // log::trace!("Received packet {:?}", ipv6_parsed);
 
-                        let icmp_packet = match Icmpv6Packet::new_checked(packet.payload()) {
-                            Ok(packet) => packet,
-                            Err(_) => continue,
-                        };
+                        // let icmp_packet = match Icmpv6Packet::new_checked(packet.payload()) {
+                        //     Ok(packet) => packet,
+                        //     Err(_) => continue,
+                        // };
 
-                        let icmp_parsed = match Icmpv6Repr::parse(
-                            &ipv6_parsed.src_addr.into_address(),
-                            &ipv6_parsed.dst_addr.into_address(),
-                            &icmp_packet,
-                            &ignored_caps,
-                        ) {
-                            Ok(repr) => repr,
-                            Err(_) => continue,
-                        };
+                        // let icmp_parsed = match Icmpv6Repr::parse(
+                        //     &ipv6_parsed.src_addr.into_address(),
+                        //     &ipv6_parsed.dst_addr.into_address(),
+                        //     &icmp_packet,
+                        //     &ignored_caps,
+                        // ) {
+                        //     Ok(repr) => repr,
+                        //     Err(_) => continue,
+                        // };
 
-                        match icmp_parsed {
-                            Icmpv6Repr::EchoRequest { .. } => {
+                        // match icmp_parsed {
+                        //     Icmpv6Repr::EchoRequest { .. } => {
                                 let req = PixelRequest::from_ipv6(&ipv6_parsed.dst_addr.into());
                                 let (x, y) = req.pos;
                                 self.image.put(x as _, y as _, req.color, req.size == 2);
                                 self.packet_counter.increment();
-                            }
-                            _ => {}
-                        }
+                        //     }
+                        //     _ => {}
+                        // }
                     }
                 }
 

@@ -35,8 +35,8 @@ rand = "0.8.5"
 serde = {version = "1.0.160", features = ["derive"]}
 serde_json = "1.0.96"
 # Need a custom fork to support disabling ICMPv6 responses and processing of raw packets.
-# smoltcp = {git = "https://github.com/alula/smoltcp.git", rev = "0d78ce4e1bd8fc4f804a867dd2cfc12f48cbbfa4", optional = true, default-features = false, features = ["medium-ip", "socket-raw", "proto-ipv6", "phy-tuntap_interface", "std"]}
-smoltcp = {path = "../../smoltcp", optional = true, default-features = false, features = ["medium-ip", "socket-raw", "socket-icmp", "proto-ipv6", "phy-tuntap_interface", "std"]}
+smoltcp = {git = "https://github.com/alula/smoltcp.git", rev = "0d78ce4e1bd8fc4f804a867dd2cfc12f48cbbfa4", optional = true, default-features = false, features = ["medium-ip", "socket-raw", "proto-ipv6", "phy-tuntap_interface", "std"]}
+# smoltcp = {path = "../../smoltcp", optional = true, default-features = false, features = ["medium-ip", "socket-raw", "socket-icmp", "proto-ipv6", "phy-tuntap_interface", "std"]}
 signal-hook = "0.3.15"
 signal-hook-tokio = {version = "0.3.1", features = ["futures-v0_3"]}
 surge-ping = "0.8.0"
